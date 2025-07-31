@@ -11,6 +11,12 @@
 
 using namespace std;
 
+struct PendingUpdate {
+    string username;
+    string fullname;
+    string otp;
+};
+
 // Simple OTP service with alphanumeric support
 class OTPService {
 public:
@@ -175,6 +181,7 @@ User* login() {
             cin >> p;
             user->setPassword(p);
             user->must_change_password = false;
+            db.saveUsers();
             cout << "Password updated. Please log in again.\n";
             return nullptr;
         }
@@ -230,6 +237,7 @@ void changePassword(User &user) {
     string newp;
     cin >> newp;
     user.setPassword(newp);
+    db.saveUsers();
     cout << "Password successfully changed.\n";
 }
 
@@ -249,6 +257,7 @@ void updatePersonalInfo(User &user) {
     string name;
     getline(cin, name);
     user.full_name = name;
+    db.saveUsers();
     cout << "Personal information updated.\n";
 }
 
@@ -412,7 +421,8 @@ void userMenu(User &user) {
              << "4. View Wallet\n"
              << "5. Transfer Points\n"
              << "6. Top-up from Central\n"
-             << "7. Logout\n"
+             << "7. Notify update\n"
+             << "8. Logout\n"
              << "Choice: ";
         int choice;
         cin >> choice;
@@ -442,7 +452,86 @@ void userMenu(User &user) {
             case 6:
                 userRequestTopUp(user);
                 break;
-            case 7:
+            case 7: {
+                cout << "Pending User Update Requests:\n";
+
+                // Đọc và hiển thị danh sách yêu cầu
+                ifstream fin("admin_update_requests.db");
+                if (!fin) {
+                    cerr << "No pending update file found.\n";
+                    break;
+                }
+
+                string line;
+                vector<string> availableOtps;
+                vector<string> requestLines;
+
+                while (getline(fin, line)) {
+                    stringstream ss(line);
+                    string otp, username, fullname;
+                    getline(ss, otp, '|');
+                    getline(ss, username, '|');
+                    getline(ss, fullname);
+
+                    cout << "Username: " << username << "\n";
+                    cout << "New Fullname: " << fullname << "\n";
+                    cout << "OTP: " << otp << "\n";
+                    cout << "--------------------------\n";
+
+                    availableOtps.push_back(otp);
+                    requestLines.push_back(line);
+                }
+                fin.close();
+
+                if (availableOtps.empty()) {
+                    cout << "No pending requests found.\n";
+                    break;
+                }
+
+                cout << "Enter OTP to confirm user update: ";
+                string otp_input;
+                cin >> otp_input;
+
+                // Duyệt lại các dòng đã đọc, xử lý cập nhật và ghi ra file tạm
+                ofstream fout("temp_admin_update_requests.db");
+                bool found = false;
+
+                for (const string &entry : requestLines) {
+                    stringstream ss(entry);
+                    string otp, username, fullname;
+                    getline(ss, otp, '|');
+                    getline(ss, username, '|');
+                    getline(ss, fullname);
+
+                    if (otp == otp_input) {
+                        auto user_it = db.users.find(username);
+                        if (user_it != db.users.end()) {
+                            user_it->second.full_name = fullname;
+                            db.saveUsers();
+                            cout << "Updated successfully for user'" << username << "'.\n";
+                        } else {
+                            cout << "User not found in database.\n";
+                        }
+                        found = true;
+                        // Không ghi lại dòng này nữa => tức là xoá khỏi file
+                    } else {
+                        fout << entry << "\n"; // Giữ lại dòng chưa xử lý
+                    }
+                }
+
+                fout.close();
+
+                // Ghi đè file cũ
+                remove("admin_update_requests.db");
+                rename("temp_admin_update_requests.db", "admin_update_requests.db");
+
+                if (!found) {
+                    cout << "Invalid or expired OTP.\n";
+                }
+
+                break;
+            }
+            case 8:
                 return;
             default:
                 cout << "Invalid selection.\n";
@@ -485,8 +574,27 @@ void adminMenu(User &user) {
                 string uname;
                 cin >> uname;
                 auto it = db.users.find(uname);
-                if (it != db.users.end()) updatePersonalInfo(it->second);
-                else cout << "User not found.\n";
+                if (it == db.users.end()) {
+                    cout << "User not found.\n";
+                    break;
+                }
+
+                cout << "Enter new fullname: ";
+                string new_fullname;
+                cin.ignore();
+                getline(cin, new_fullname);
+
+                string otp = OTPService::generateOTP();
+                PendingUpdate pending{uname, new_fullname, otp};
+
+                // Ghi vào file
+                ofstream req("admin_update_requests.db", ios::app);
+                if (req) {
+                    req << pending.otp << "|" << pending.username << "|" << pending.fullname << "\n";
+                    cout << "OTP " << otp << " has been generated and sent to the user.\n";
+                } else {
+                    cerr << "Failed to write pending update to file.\n";
+                }
                 break;
             }
             case 4:
