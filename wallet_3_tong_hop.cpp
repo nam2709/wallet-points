@@ -271,9 +271,9 @@ void viewWallet(const User &user) {
     }
 
     // Show in-memory history first (if needed)
-    for (const auto &e : w.history) {
-        cout << " - [Currently] " << "Wallet " << w.id << ": " << e << "\n";
-    }
+    // for (const auto &e : w.history) {
+    //     cout << " - [Currently] " << "Wallet " << w.id << ": " << e << "\n";
+    // }
 }
 
 // Admin: view central wallet
@@ -351,22 +351,55 @@ void transferPoints(User &user) {
     cout << "Transfer completed.\n";
 }
 
-// User: top-up own wallet
-void userTopUpFromCentral(User &user) {
-    Wallet &central = db.wallets.at(0);
-    cout << "Enter amount to top-up: ";
+// User: Request to top-up own wallet (adds to a request queue)
+void userRequestTopUp(User &user) {
+    cout << "Enter amount to request top-up: ";
     long long amt;
     cin >> amt;
-    if (central.balance < amt) {
-        cout << "Insufficient central balance.\n";
-        return;
+
+    // Simulate saving request to "top-up requests database"
+    ofstream req("topup_requests.db", ios::app);
+    if (req) {
+        time_t now = time(nullptr);
+        req << user.wallet_id << " " << amt << " " << now << "\n";
+        cout << "Top-up request submitted. Please wait for admin approval.\n";
+    } else {
+        cerr << "Failed to save top-up request.\n";
     }
-    Wallet &self = db.wallets.at(user.wallet_id);
-    central.balance -= amt;
-    self.balance += amt;
-    central.log("Debited " + to_string(amt) + " to user wallet " + to_string(user.wallet_id));
-    self.log("Received " + to_string(amt) + " from central");
-    cout << "Your balance: " << self.balance << "\n";
+}
+
+// Admin: Approve top-up requests (manually or automatically)
+void adminApproveTopUps() {
+    ifstream req("topup_requests.db");
+    ofstream temp("topup_requests_temp.db");
+    string line;
+    while (getline(req, line)) {
+        istringstream iss(line);
+        int wallet_id;
+        long long amt;
+        time_t t;
+        if (!(iss >> wallet_id >> amt >> t)) continue;
+
+        Wallet &central = db.wallets.at(0);
+        Wallet &target = db.wallets.at(wallet_id);
+
+        if (central.balance >= amt) {
+            central.balance -= amt;
+            target.balance += amt;
+            central.log("Debited " + to_string(amt) + " to wallet " + to_string(wallet_id));
+            target.log("Received " + to_string(amt) + " from central");
+
+            cout << "Approved top-up of " << amt << " to wallet " << wallet_id << ".\n";
+        } else {
+            cout << "Insufficient central balance for wallet " << wallet_id << ". Request kept pending.\n";
+            temp << line << "\n"; // keep request for future processing
+        }
+    }
+
+    req.close();
+    temp.close();
+    remove("topup_requests.db");
+    rename("topup_requests_temp.db", "topup_requests.db");
 }
 
 // Menu for regular users
@@ -407,7 +440,7 @@ void userMenu(User &user) {
                 transferPoints(user);
                 break;
             case 6:
-                userTopUpFromCentral(user);
+                userRequestTopUp(user);
                 break;
             case 7:
                 return;
@@ -426,7 +459,8 @@ void adminMenu(User &user) {
              << "3. Modify User Info\n"
              << "4. View Central Wallet\n"
              << "5. Top-up User Wallet\n"
-             << "6. Logout\n"
+             << "6. Approve Top-up\n"
+             << "7. Logout\n"
              << "Choice: ";
         int choice;
         cin >> choice;
@@ -462,6 +496,9 @@ void adminMenu(User &user) {
                 topUpWallet(user);
                 break;
             case 6:
+                adminApproveTopUps();
+                break;
+            case 7:
                 return;
             default:
                 cout << "Invalid selection.\n";
