@@ -106,22 +106,16 @@ public:
             ofs << w.id << ' ' << w.balance << '\n';
         }
     }
-
-    Database() : next_wallet_id(1) {
-        loadUsers();
-        loadWallets();
-        if (!wallets.count(0)) {
-            wallets[0] = Wallet(0);
-            wallets[0].balance = 1000000;
+    void loadWallets() {
+        ifstream ifs("wallets.db");
+        if (!ifs) return;
+        int id;
+        long long bal;
+        while (ifs >> id >> bal) {
+            wallets[id] = Wallet(id);
+            wallets[id].balance = bal;
         }
     }
-    ~Database() {
-        backupFiles();
-        saveUsers();
-        saveWallets();
-    }
-
-private:
     void loadUsers() {
         ifstream ifs("users.db");
         if (!ifs) return;
@@ -141,16 +135,22 @@ private:
             next_wallet_id = max(next_wallet_id, wid + 1);
         }
     }
-    void loadWallets() {
-        ifstream ifs("wallets.db");
-        if (!ifs) return;
-        int id;
-        long long bal;
-        while (ifs >> id >> bal) {
-            wallets[id] = Wallet(id);
-            wallets[id].balance = bal;
+
+    Database() : next_wallet_id(1) {
+        loadUsers();
+        loadWallets();
+        if (!wallets.count(0)) {
+            wallets[0] = Wallet(0);
+            wallets[0].balance = 1000000;
         }
     }
+    ~Database() {
+        backupFiles();
+        // saveUsers();
+        // saveWallets();
+    }
+
+private:
     void backupFiles() {
         time_t now = time(nullptr);
         char buf[32];
@@ -167,6 +167,7 @@ Database db;
 
 // Authentication
 User* login() {
+    db.loadUsers();
     cout << "Username: ";
     string u, p;
     cin >> u;
@@ -193,6 +194,8 @@ User* login() {
 
 // Registration
 void registerUser(bool asAdmin = false) {
+    db.loadUsers();
+    db.loadWallets();
     cout << "Enter username: ";
     string u;
     cin >> u;
@@ -215,17 +218,19 @@ void registerUser(bool asAdmin = false) {
     getline(cin, name);
     int wid = db.next_wallet_id++;
     db.users[u] = User(u, pwd, name, asAdmin, wid, forceChange);
-    db.wallets[wid] = Wallet(wid);
+    if (!asAdmin) {
+        db.wallets[wid] = Wallet(wid);
+        cout << "User '" << u << "' created with wallet ID " << wid << ".\n";
+    }
 
     // Save to file immediately
     db.saveUsers();
     db.saveWallets();
-    
-    cout << "User '" << u << "' created with wallet ID " << wid << ".\n";
 }
 
 // Change password
 void changePassword(User &user) {
+    db.loadUsers();
     cout << "Current password: ";
     string oldp;
     cin >> oldp;
@@ -243,6 +248,7 @@ void changePassword(User &user) {
 
 // Update personal info
 void updatePersonalInfo(User &user) {
+    db.loadUsers();
     cout << "Sending OTP for update...\n";
     string code = OTPService::generateOTP(6);
     cout << "OTP: " << code << "\nEnter OTP: ";
@@ -263,6 +269,7 @@ void updatePersonalInfo(User &user) {
 
 // View own wallet
 void viewWallet(const User &user) {
+    db.loadWallets();
     const Wallet &w = db.wallets.at(user.wallet_id);
     cout << "Wallet ID: " << w.id << " | Balance: " << w.balance << "\nHistory:\n";
 
@@ -301,6 +308,7 @@ void topUpWallet(const User &user) {
         cout << "Access denied. Admins only.\n";
         return;
     }
+    db.loadWallets();
     Wallet &central = db.wallets.at(0);
     cout << "Central balance before: " << central.balance << "\n";
     cout << "Enter user wallet ID: ";
@@ -327,6 +335,7 @@ void topUpWallet(const User &user) {
 
 // Transfer between user wallets
 void transferPoints(User &user) {
+    db.loadWallets();
     Wallet &src = db.wallets.at(user.wallet_id);
     cout << "Enter destination wallet ID: ";
     int dest_id;
@@ -366,46 +375,132 @@ void userRequestTopUp(User &user) {
     long long amt;
     cin >> amt;
 
+    // Input validation: non-numeric input
+    if (cin.fail()) {
+        cin.clear(); // clear error flags
+        cin.ignore(numeric_limits<streamsize>::max(), '\n'); // discard bad input
+        cerr << "Invalid input must be a number.\n";
+        return;
+    }
+
+    if (amt <= 0) {
+        cerr << "Invalid Amount must be greater than 0.\n";
+        return;
+    }
+
+    // Generate a unique request ID
+    string requestID;
+    requestID = OTPService::generateOTP(8);
+
     // Simulate saving request to "top-up requests database"
     ofstream req("topup_requests.db", ios::app);
     if (req) {
         time_t now = time(nullptr);
-        req << user.wallet_id << " " << amt << " " << now << "\n";
+        req << requestID << " " << user.wallet_id << " " << amt << " " << now << "\n";
         cout << "Top-up request submitted. Please wait for admin approval.\n";
     } else {
         cerr << "Failed to save top-up request.\n";
     }
 }
 
-// Admin: Approve top-up requests (manually or automatically)
 void adminApproveTopUps() {
+    struct Request {
+        string request_id;
+        int wallet_id;
+        long long amount;
+        time_t timestamp;
+    };
+
+    vector<Request> allRequests;
+
+    // Load all requests
     ifstream req("topup_requests.db");
-    ofstream temp("topup_requests_temp.db");
     string line;
     while (getline(req, line)) {
         istringstream iss(line);
+        string request_id;
         int wallet_id;
         long long amt;
         time_t t;
-        if (!(iss >> wallet_id >> amt >> t)) continue;
+        if (iss >> request_id >> wallet_id >> amt >> t) {
+            allRequests.push_back({request_id, wallet_id, amt, t});
+        }
+    }
+    req.close();
 
-        Wallet &central = db.wallets.at(0);
-        Wallet &target = db.wallets.at(wallet_id);
+    // Display all requests
+    cout << "Pending Top-Up Requests:\n";
+    for (const auto& r : allRequests) {
+        cout << "RequestID: " << r.request_id
+             << " | Wallet ID: " << r.wallet_id
+             << " | Amount: " << r.amount
+             << " | Requested at: " << ctime(&r.timestamp);
+    }
 
-        if (central.balance >= amt) {
-            central.balance -= amt;
-            target.balance += amt;
-            central.log("Debited " + to_string(amt) + " to wallet " + to_string(wallet_id));
-            target.log("Received " + to_string(amt) + " from central");
+    cout << "\nApprove by:\n1. Wallet ID\n2. Request ID\nChoose: ";
+    int choice;
+    cin >> choice;
 
-            cout << "Approved top-up of " << amt << " to wallet " << wallet_id << ".\n";
+    string selectedRequestID = "";
+    int selectedWalletID = -1;
+
+    if (choice == 1) {
+        cout << "Enter Wallet ID: ";
+        cin >> selectedWalletID;
+    } else if (choice == 2) {
+        cout << "Enter Request ID: ";
+        cin >> selectedRequestID;
+    } else {
+        cerr << "Invalid choice.\n";
+        return;
+    }
+
+    db.loadWallets();
+    Wallet &central = db.wallets.at(0);
+    ofstream temp("topup_requests_temp.db");
+
+    vector<Request> approved;
+
+    // Simulate approval decisions
+    for (const auto& r : allRequests) {
+        bool shouldApprove = false;
+
+        if (choice == 1 && r.wallet_id == selectedWalletID)
+            shouldApprove = true;
+        else if (choice == 2 && r.request_id == selectedRequestID)
+            shouldApprove = true;
+
+        if (shouldApprove) {
+            if (!db.wallets.count(r.wallet_id)) {
+                cerr << "Wallet ID " << r.wallet_id << " not found. Request skipped.\n";
+                temp << r.request_id << " " << r.wallet_id << " " << r.amount << " " << r.timestamp << "\n";
+                continue;
+            }
+            if (central.balance < r.amount) {
+                cerr << "Insufficient central balance for wallet " << r.wallet_id << ". Request kept pending.\n";
+                temp << r.request_id << " " << r.wallet_id << " " << r.amount << " " << r.timestamp << "\n";
+                continue;
+            }
+            approved.push_back(r);
         } else {
-            cout << "Insufficient central balance for wallet " << wallet_id << ". Request kept pending.\n";
-            temp << line << "\n"; // keep request for future processing
+            temp << r.request_id << " " << r.wallet_id << " " << r.amount << " " << r.timestamp << "\n";
         }
     }
 
-    req.close();
+    // Apply changes for approved ones
+    for (const auto& r : approved) {
+        Wallet &target = db.wallets.at(r.wallet_id);
+        central.balance -= r.amount;
+        target.balance += r.amount;
+
+        central.log("Debited " + to_string(r.amount) + " to wallet " + to_string(r.wallet_id));
+        target.log("Received " + to_string(r.amount) + " from central");
+
+        cout << "Approved top-up of " << r.amount << " to wallet " << r.wallet_id << ".\n";
+    }
+
+    db.saveWallets();
+
     temp.close();
     remove("topup_requests.db");
     rename("topup_requests_temp.db", "topup_requests.db");
@@ -435,6 +530,7 @@ void userMenu(User &user) {
 
         switch (choice) {
             case 1:
+                db.loadUsers();
                 cout << "Username: " << user.username << " | Name: " << user.full_name << "\n";
                 break;
             case 2:
@@ -453,6 +549,7 @@ void userMenu(User &user) {
                 userRequestTopUp(user);
                 break;
             case 7: {
+                db.loadUsers();
                 cout << "Pending User Update Requests:\n";
 
                 // Đọc và hiển thị danh sách yêu cầu
@@ -473,10 +570,12 @@ void userMenu(User &user) {
                     getline(ss, username, '|');
                     getline(ss, fullname);
 
-                    cout << "Username: " << username << "\n";
-                    cout << "New Fullname: " << fullname << "\n";
-                    cout << "OTP: " << otp << "\n";
-                    cout << "--------------------------\n";
+                    if (username == user.username) {
+                        cout << "Username: " << username << "\n";
+                        cout << "New Fullname: " << fullname << "\n";
+                        cout << "OTP: " << otp << "\n";
+                        cout << "--------------------------\n";
+                    }
 
                     availableOtps.push_back(otp);
                     requestLines.push_back(line);
@@ -503,7 +602,8 @@ void userMenu(User &user) {
                     getline(ss, username, '|');
                     getline(ss, fullname);
 
-                    if (otp == otp_input) {
+                    if (otp == otp_input && username == user.username) {
+                        db.loadUsers();
                         auto user_it = db.users.find(username);
                         if (user_it != db.users.end()) {
                             user_it->second.full_name = fullname;
