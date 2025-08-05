@@ -8,8 +8,76 @@
 #include <random>
 #include <functional>
 #include <limits>
+#include <iomanip>
 
 using namespace std;
+
+// ANSI Color codes for terminal formatting
+namespace Colors {
+    const string RESET = "\033[0m";
+    const string BOLD = "\033[1m";
+    const string RED = "\033[31m";
+    const string GREEN = "\033[32m";
+    const string YELLOW = "\033[33m";
+    const string BLUE = "\033[34m";
+    const string MAGENTA = "\033[35m";
+    const string CYAN = "\033[36m";
+    const string WHITE = "\033[37m";
+    const string BRIGHT_RED = "\033[91m";
+    const string BRIGHT_GREEN = "\033[92m";
+    const string BRIGHT_YELLOW = "\033[93m";
+    const string BRIGHT_BLUE = "\033[94m";
+    const string BRIGHT_MAGENTA = "\033[95m";
+    const string BRIGHT_CYAN = "\033[96m";
+    
+    // Terminal-friendly colors
+    const string PRIMARY = "\033[38;5;33m";      // Blue
+    const string SECONDARY = "\033[38;5;39m";    // Light Blue
+    const string ACCENT = "\033[38;5;208m";      // Orange
+    const string SUCCESS = "\033[38;5;46m";      // Green
+    const string WARNING = "\033[38;5;214m";     // Yellow
+    const string ERROR = "\033[38;5;196m";       // Red
+    const string INFO = "\033[38;5;51m";         // Cyan
+    const string HIGHLIGHT = "\033[38;5;226m";   // Bright Yellow
+    const string MUTED = "\033[38;5;240m";       // Gray
+}
+
+// Utility functions for formatting
+void printHeader(const string& title) {
+    cout << Colors::PRIMARY << "+===============================================================+" << Colors::RESET << endl;
+    cout << Colors::PRIMARY << "|" << Colors::RESET << Colors::BOLD << Colors::HIGHLIGHT << " " << title << Colors::RESET << endl;
+    cout << Colors::PRIMARY << "+===============================================================+" << Colors::RESET << endl;
+}
+
+void printSubHeader(const string& title) {
+    cout << Colors::ACCENT << "=================================================================" << Colors::RESET << endl;
+    cout << Colors::BOLD << Colors::HIGHLIGHT << " " << title << Colors::RESET << endl;
+    cout << Colors::ACCENT << "=================================================================" << Colors::RESET << endl;
+}
+
+void printSuccess(const string& message) {
+    cout << Colors::SUCCESS << "[SUCCESS] " << message << Colors::RESET << endl;
+}
+
+void printError(const string& message) {
+    cout << Colors::ERROR << "[ERROR] " << message << Colors::RESET << endl;
+}
+
+void printInfo(const string& message) {
+    cout << Colors::INFO << "[INFO] " << message << Colors::RESET << endl;
+}
+
+void printWarning(const string& message) {
+    cout << Colors::WARNING << "[WARNING] " << message << Colors::RESET << endl;
+}
+
+void clearScreen() {
+    #ifdef _WIN32
+        system("cls");
+    #else
+        system("clear");
+    #endif
+}
 
 struct PendingUpdate {
     string username;
@@ -167,60 +235,69 @@ Database db;
 
 // Authentication
 User* login() {
+    clearScreen();
+    printHeader("WALLET POINTS SYSTEM - LOGIN");
+    cout << endl;
+    
     db.loadUsers();
-    cout << "Username: ";
+    cout << Colors::SECONDARY << "Username: " << Colors::RESET;
     string u, p;
     cin >> u;
-    cout << "Password: ";
+    cout << Colors::SECONDARY << "Password: " << Colors::RESET;
     cin >> p;
     auto it = db.users.find(u);
     if (it != db.users.end() && it->second.checkPassword(p)) {
         User *user = &it->second;
         if (user->must_change_password) {
-            cout << "Temporary password detected. Please set a new password:\n";
-            cout << "New password: ";
+            printWarning("Temporary password detected. Please set a new password:");
+            cout << Colors::BRIGHT_CYAN << "New password: " << Colors::RESET;
             cin >> p;
             user->setPassword(p);
             user->must_change_password = false;
             db.saveUsers();
-            cout << "Password updated. Please log in again.\n";
+            printSuccess("Password updated. Please log in again.");
             return nullptr;
         }
+        printSuccess("Login successful! Welcome, " + user->full_name + "!");
         return user;
     }
-    cout << "Invalid credentials.\n";
+    printError("Invalid credentials.");
     return nullptr;
 }
 
 // Registration
 void registerUser(bool asAdmin = false) {
+    clearScreen();
+    printHeader("WALLET POINTS SYSTEM - REGISTRATION");
+    cout << endl;
+    
     db.loadUsers();
     db.loadWallets();
-    cout << "Enter username: ";
+    cout << Colors::SECONDARY << "Enter username: " << Colors::RESET;
     string u;
     cin >> u;
     if (db.users.count(u)) {
-        cout << "Username already exists.\n";
+        printError("Username already exists.");
         return;
     }
-    cout << "Enter password (leave blank for auto-generation): ";
+    cout << Colors::SECONDARY << "Enter password (leave blank for auto-generation): " << Colors::RESET;
     cin.ignore(numeric_limits<streamsize>::max(), '\n');
     string pwd;
     getline(cin, pwd);
     bool forceChange = false;
     if (pwd.empty()) {
         pwd = OTPService::generateOTP(10);
-        cout << "Generated password: " << pwd << "\n";
+        cout << Colors::WARNING << "Generated password: " << Colors::SUCCESS << pwd << Colors::RESET << endl;
         forceChange = true;
     }
-    cout << "Full name: ";
+    cout << Colors::SECONDARY << "Full name: " << Colors::RESET;
     string name;
     getline(cin, name);
     int wid = db.next_wallet_id++;
     db.users[u] = User(u, pwd, name, asAdmin, wid, forceChange);
     if (!asAdmin) {
         db.wallets[wid] = Wallet(wid);
-        cout << "User '" << u << "' created with wallet ID " << wid << ".\n";
+        printSuccess("User '" + u + "' created with wallet ID " + to_string(wid) + ".");
     }
 
     // Save to file immediately
@@ -230,148 +307,233 @@ void registerUser(bool asAdmin = false) {
 
 // Change password
 void changePassword(User &user) {
+    clearScreen();
+    printHeader("CHANGE PASSWORD");
+    cout << endl;
+    
     db.loadUsers();
-    cout << "Current password: ";
+    cout << Colors::BRIGHT_CYAN << "Current password: " << Colors::RESET;
     string oldp;
     cin >> oldp;
     if (!user.checkPassword(oldp)) {
-        cout << "Incorrect password.\n";
+        printError("Incorrect password.");
         return;
     }
-    cout << "New password: ";
+    cout << Colors::BRIGHT_CYAN << "New password: " << Colors::RESET;
     string newp;
     cin >> newp;
     user.setPassword(newp);
     db.saveUsers();
-    cout << "Password successfully changed.\n";
+    printSuccess("Password successfully changed.");
+    
+    cout << endl;
+    cout << Colors::BRIGHT_CYAN << "Press Enter to continue..." << Colors::RESET;
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.get();
 }
 
 // Update personal info
 void updatePersonalInfo(User &user) {
+    clearScreen();
+    printHeader("UPDATE PERSONAL INFORMATION");
+    cout << endl;
+    
     db.loadUsers();
-    cout << "Sending OTP for update...\n";
+    printInfo("Sending OTP for update...");
     string code = OTPService::generateOTP(6);
-    cout << "OTP: " << code << "\nEnter OTP: ";
+    cout << Colors::BRIGHT_YELLOW << "OTP: " << Colors::RESET << code << endl;
+    cout << Colors::BRIGHT_CYAN << "Enter OTP: " << Colors::RESET;
     string in;
     cin >> in;
     if (!OTPService::verifyOTP(code, in)) {
-        cout << "Invalid OTP.\n";
+        printError("Invalid OTP.");
         return;
     }
-    cout << "New full name: ";
+    cout << Colors::BRIGHT_CYAN << "New full name: " << Colors::RESET;
     cin.ignore(numeric_limits<streamsize>::max(), '\n');
     string name;
     getline(cin, name);
     user.full_name = name;
     db.saveUsers();
-    cout << "Personal information updated.\n";
+    printSuccess("Personal information updated successfully.");
+    
+    cout << endl;
+    cout << Colors::BRIGHT_CYAN << "Press Enter to continue..." << Colors::RESET;
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.get();
 }
 
 // View own wallet
 void viewWallet(const User &user) {
+    clearScreen();
+    printHeader("WALLET INFORMATION");
+    cout << endl;
+    
     db.loadWallets();
     const Wallet &w = db.wallets.at(user.wallet_id);
-    cout << "Wallet ID: " << w.id << " | Balance: " << w.balance << "\nHistory:\n";
-
+    
+    cout << Colors::BRIGHT_CYAN << "Wallet ID: " << Colors::RESET << w.id << endl;
+    cout << Colors::BRIGHT_GREEN << "Balance: " << Colors::RESET << w.balance << " points" << endl;
+    cout << endl;
+    
+    printSubHeader("TRANSACTION HISTORY");
+    
     // Now read and filter transaction.db for this wallet
     ifstream logf("transaction.db");
     if (logf) {
         string line;
+        int count = 0;
         while (getline(logf, line)) {
             // Only show lines matching "Wallet <id>:"
             string match = "Wallet " + to_string(w.id) + ":";
             if (line.find(match) != string::npos) {
-                cout << " - " << line << '\n';
+                count++;
+                cout << Colors::BRIGHT_CYAN << count << "." << Colors::RESET << " " << line << endl;
             }
         }
+        if (count == 0) {
+            printInfo("No transaction history found.");
+        }
+    } else {
+        printInfo("No transaction history available.");
     }
 
-    // Show in-memory history first (if needed)
-    // for (const auto &e : w.history) {
-    //     cout << " - [Currently] " << "Wallet " << w.id << ": " << e << "\n";
-    // }
+    cout << endl;
+    cout << Colors::BRIGHT_CYAN << "Press Enter to continue..." << Colors::RESET;
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.get();
 }
 
 // Admin: view central wallet
 void viewCentralWallet(const User &user) {
     if (!user.is_admin) {
-        cout << "Access denied. Admins only.\n";
+        printError("Access denied. Admins only.");
         return;
     }
+    
+    clearScreen();
+    printHeader("CENTRAL WALLET");
+    cout << endl;
+    
     const Wallet &w = db.wallets.at(0);
-    cout << "Central Wallet Balance: " << w.balance << "\n";
+    cout << Colors::BRIGHT_GREEN << "Central Wallet Balance: " << Colors::RESET << w.balance << " points" << endl;
+    cout << endl;
+    
+    cout << Colors::BRIGHT_CYAN << "Press Enter to continue..." << Colors::RESET;
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.get();
 }
 
 // Admin: top-up user wallet
 void topUpWallet(const User &user) {
     if (!user.is_admin) {
-        cout << "Access denied. Admins only.\n";
+        printError("Access denied. Admins only.");
         return;
     }
+    
+    clearScreen();
+    printHeader("TOP-UP USER WALLET");
+    cout << endl;
+    
     db.loadWallets();
     Wallet &central = db.wallets.at(0);
-    cout << "Central balance before: " << central.balance << "\n";
-    cout << "Enter user wallet ID: ";
+    cout << Colors::BRIGHT_GREEN << "Central balance: " << Colors::RESET << central.balance << " points" << endl;
+    cout << endl;
+    
+    cout << Colors::BRIGHT_CYAN << "Enter user wallet ID: " << Colors::RESET;
     int wid;
     cin >> wid;
     if (wid == 0 || !db.wallets.count(wid)) {
-        cout << "Invalid wallet ID.\n";
+        printError("Invalid wallet ID.");
         return;
     }
-    cout << "Amount to top-up: ";
+    
+    cout << Colors::BRIGHT_CYAN << "Amount to top-up: " << Colors::RESET;
     long long amt;
     cin >> amt;
     if (central.balance < amt) {
-        cout << "Insufficient central balance.\n";
+        printError("Insufficient central balance.");
         return;
     }
+    
     central.balance -= amt;
     Wallet &target = db.wallets.at(wid);
     target.balance += amt;
     central.log("Debited " + to_string(amt) + " to wallet " + to_string(wid));
     target.log("Received " + to_string(amt) + " from central");
-    cout << "Top-up successful. Remaining central balance: " << central.balance << "\n";
+    
+    printSuccess("Top-up successful!");
+    cout << Colors::BRIGHT_GREEN << "Remaining central balance: " << Colors::RESET << central.balance << " points" << endl;
+    
+    cout << endl;
+    cout << Colors::BRIGHT_CYAN << "Press Enter to continue..." << Colors::RESET;
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.get();
 }
 
 // Transfer between user wallets
 void transferPoints(User &user) {
+    clearScreen();
+    printHeader("TRANSFER POINTS");
+    cout << endl;
+    
     db.loadWallets();
     Wallet &src = db.wallets.at(user.wallet_id);
-    cout << "Enter destination wallet ID: ";
+    cout << Colors::BRIGHT_GREEN << "Your balance: " << Colors::RESET << src.balance << " points" << endl;
+    cout << endl;
+    
+    cout << Colors::BRIGHT_CYAN << "Enter destination wallet ID: " << Colors::RESET;
     int dest_id;
     cin >> dest_id;
     if (!db.wallets.count(dest_id)) {
-        cout << "Destination wallet not found.\n";
+        printError("Destination wallet not found.");
         return;
     }
-    cout << "Amount: ";
+    
+    cout << Colors::BRIGHT_CYAN << "Amount: " << Colors::RESET;
     long long amount;
     cin >> amount;
-    cout << "Send OTP for transaction...\n";
+    
+    printInfo("Sending OTP for transaction...");
     string code = OTPService::generateOTP(6);
-    cout << "OTP: " << code << "\nEnter OTP: ";
+    cout << Colors::BRIGHT_YELLOW << "OTP: " << Colors::RESET << code << endl;
+    cout << Colors::BRIGHT_CYAN << "Enter OTP: " << Colors::RESET;
     string in;
     cin >> in;
+    
     if (!OTPService::verifyOTP(code, in)) {
-        cout << "Invalid OTP.\n";
+        printError("Invalid OTP.");
         return;
     }
+    
     if (src.balance < amount) {
-        cout << "Insufficient balance.\n";
+        printError("Insufficient balance.");
         return;
     }
+    
     Wallet &dest = db.wallets.at(dest_id);
     src.balance -= amount;
     dest.balance += amount;
     src.log("Sent " + to_string(amount) + " to " + to_string(dest_id));
     dest.log("Received " + to_string(amount) + " from " + to_string(src.id));
     db.saveWallets();
-    cout << "Transfer completed.\n";
+    
+    printSuccess("Transfer completed successfully!");
+    cout << Colors::BRIGHT_GREEN << "New balance: " << Colors::RESET << src.balance << " points" << endl;
+    
+    cout << endl;
+    cout << Colors::BRIGHT_CYAN << "Press Enter to continue..." << Colors::RESET;
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.get();
 }
 
 // User: Request to top-up own wallet (adds to a request queue)
 void userRequestTopUp(User &user) {
-    cout << "Enter amount to request top-up: ";
+    clearScreen();
+    printHeader("REQUEST TOP-UP");
+    cout << endl;
+    
+    cout << Colors::BRIGHT_CYAN << "Enter amount to request top-up: " << Colors::RESET;
     long long amt;
     cin >> amt;
 
@@ -379,12 +541,12 @@ void userRequestTopUp(User &user) {
     if (cin.fail()) {
         cin.clear(); // clear error flags
         cin.ignore(numeric_limits<streamsize>::max(), '\n'); // discard bad input
-        cerr << "Invalid input must be a number.\n";
+        printError("Invalid input. Amount must be a number.");
         return;
     }
 
     if (amt <= 0) {
-        cerr << "Invalid Amount must be greater than 0.\n";
+        printError("Invalid amount. Must be greater than 0.");
         return;
     }
 
@@ -397,13 +559,25 @@ void userRequestTopUp(User &user) {
     if (req) {
         time_t now = time(nullptr);
         req << requestID << " " << user.wallet_id << " " << amt << " " << now << "\n";
-        cout << "Top-up request submitted. Please wait for admin approval.\n";
+        printSuccess("Top-up request submitted successfully!");
+        cout << Colors::BRIGHT_CYAN << "Request ID: " << Colors::RESET << requestID << endl;
+        cout << Colors::BRIGHT_CYAN << "Amount: " << Colors::RESET << amt << " points" << endl;
+        printInfo("Please wait for admin approval.");
     } else {
-        cerr << "Failed to save top-up request.\n";
+        printError("Failed to save top-up request.");
     }
+    
+    cout << endl;
+    cout << Colors::BRIGHT_CYAN << "Press Enter to continue..." << Colors::RESET;
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.get();
 }
 
 void adminApproveTopUps() {
+    clearScreen();
+    printHeader("APPROVE TOP-UP REQUESTS");
+    cout << endl;
+    
     struct Request {
         string request_id;
         int wallet_id;
@@ -428,16 +602,30 @@ void adminApproveTopUps() {
     }
     req.close();
 
-    // Display all requests
-    cout << "Pending Top-Up Requests:\n";
-    for (const auto& r : allRequests) {
-        cout << "RequestID: " << r.request_id
-             << " | Wallet ID: " << r.wallet_id
-             << " | Amount: " << r.amount
-             << " | Requested at: " << ctime(&r.timestamp);
+    if (allRequests.empty()) {
+        printInfo("No pending top-up requests found.");
+        cout << endl;
+        cout << Colors::BRIGHT_CYAN << "Press Enter to continue..." << Colors::RESET;
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        cin.get();
+        return;
     }
 
-    cout << "\nApprove by:\n1. Wallet ID\n2. Request ID\nChoose: ";
+    // Display all requests
+    printSubHeader("PENDING TOP-UP REQUESTS");
+    for (const auto& r : allRequests) {
+        cout << Colors::BRIGHT_CYAN << "Request ID: " << Colors::RESET << r.request_id << endl;
+        cout << Colors::BRIGHT_CYAN << "Wallet ID: " << Colors::RESET << r.wallet_id << endl;
+        cout << Colors::BRIGHT_CYAN << "Amount: " << Colors::RESET << r.amount << " points" << endl;
+        cout << Colors::BRIGHT_CYAN << "Requested at: " << Colors::RESET << ctime(&r.timestamp);
+        cout << Colors::YELLOW << "=================================================================" << Colors::RESET << endl;
+    }
+
+    cout << endl;
+    cout << Colors::BRIGHT_CYAN << "Approve by:\n";
+    cout << "1. Wallet ID\n";
+    cout << "2. Request ID\n";
+    cout << "Choose: " << Colors::RESET;
     int choice;
     cin >> choice;
 
@@ -445,13 +633,13 @@ void adminApproveTopUps() {
     int selectedWalletID = -1;
 
     if (choice == 1) {
-        cout << "Enter Wallet ID: ";
+        cout << Colors::BRIGHT_CYAN << "Enter Wallet ID: " << Colors::RESET;
         cin >> selectedWalletID;
     } else if (choice == 2) {
-        cout << "Enter Request ID: ";
+        cout << Colors::BRIGHT_CYAN << "Enter Request ID: " << Colors::RESET;
         cin >> selectedRequestID;
     } else {
-        cerr << "Invalid choice.\n";
+        printError("Invalid choice.");
         return;
     }
 
@@ -472,12 +660,12 @@ void adminApproveTopUps() {
 
         if (shouldApprove) {
             if (!db.wallets.count(r.wallet_id)) {
-                cerr << "Wallet ID " << r.wallet_id << " not found. Request skipped.\n";
+                printWarning("Wallet ID " + to_string(r.wallet_id) + " not found. Request skipped.");
                 temp << r.request_id << " " << r.wallet_id << " " << r.amount << " " << r.timestamp << "\n";
                 continue;
             }
             if (central.balance < r.amount) {
-                cerr << "Insufficient central balance for wallet " << r.wallet_id << ". Request kept pending.\n";
+                printWarning("Insufficient central balance for wallet " + to_string(r.wallet_id) + ". Request kept pending.");
                 temp << r.request_id << " " << r.wallet_id << " " << r.amount << " " << r.timestamp << "\n";
                 continue;
             }
@@ -496,7 +684,7 @@ void adminApproveTopUps() {
         central.log("Debited " + to_string(r.amount) + " to wallet " + to_string(r.wallet_id));
         target.log("Received " + to_string(r.amount) + " from central");
 
-        cout << "Approved top-up of " << r.amount << " to wallet " << r.wallet_id << ".\n";
+        printSuccess("Approved top-up of " + to_string(r.amount) + " to wallet " + to_string(r.wallet_id) + ".");
     }
 
     db.saveWallets();
@@ -504,34 +692,58 @@ void adminApproveTopUps() {
     temp.close();
     remove("topup_requests.db");
     rename("topup_requests_temp.db", "topup_requests.db");
+    
+    cout << endl;
+    cout << Colors::BRIGHT_CYAN << "Press Enter to continue..." << Colors::RESET;
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.get();
 }
 
 // Menu for regular users
 void userMenu(User &user) {
     while (true) {
-        cout << "\nUser Menu (" << user.username << "):\n"
-             << "1. View Info\n"
-             << "2. Change Password\n"
-             << "3. Update Info\n"
-             << "4. View Wallet\n"
-             << "5. Transfer Points\n"
-             << "6. Top-up from Central\n"
-             << "7. Notify update\n"
-             << "8. Logout\n"
-             << "Choice: ";
+        clearScreen();
+        printHeader("USER DASHBOARD - " + user.username);
+        cout << endl;
+        
+        cout << Colors::SECONDARY << "Welcome, " << Colors::SUCCESS << user.full_name << Colors::RESET << "!" << endl;
+        cout << endl;
+        
+        cout << Colors::ACCENT << "+===============================================================+" << Colors::RESET << endl;
+        cout << Colors::ACCENT << "|" << Colors::RESET << " " << Colors::BOLD << Colors::HIGHLIGHT << "USER MENU" << Colors::RESET << endl;
+        cout << Colors::ACCENT << "+===============================================================+" << Colors::RESET << endl;
+        cout << Colors::ACCENT << "|" << Colors::RESET << " " << Colors::SECONDARY << "1." << Colors::RESET << " View Profile Information" << endl;
+        cout << Colors::ACCENT << "|" << Colors::RESET << " " << Colors::SECONDARY << "2." << Colors::RESET << " Change Password" << endl;
+        cout << Colors::ACCENT << "|" << Colors::RESET << " " << Colors::SECONDARY << "3." << Colors::RESET << " Update Personal Information" << endl;
+        cout << Colors::ACCENT << "|" << Colors::RESET << " " << Colors::SECONDARY << "4." << Colors::RESET << " View Wallet & Transaction History" << endl;
+        cout << Colors::ACCENT << "|" << Colors::RESET << " " << Colors::SECONDARY << "5." << Colors::RESET << " Transfer Points to Another Wallet" << endl;
+        cout << Colors::ACCENT << "|" << Colors::RESET << " " << Colors::SECONDARY << "6." << Colors::RESET << " Request Top-up from Central Wallet" << endl;
+        cout << Colors::ACCENT << "|" << Colors::RESET << " " << Colors::SECONDARY << "7." << Colors::RESET << " Process Admin Update Notifications" << endl;
+        cout << Colors::ACCENT << "|" << Colors::RESET << " " << Colors::ERROR << "8." << Colors::RESET << " Logout" << endl;
+        cout << Colors::ACCENT << "+===============================================================+" << Colors::RESET << endl;
+        cout << endl;
+        
+        cout << Colors::SECONDARY << "Enter your choice: " << Colors::RESET;
         int choice;
         cin >> choice;
         if (cin.fail()) {
             cin.clear();
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cout << "Invalid selection.\n";
+            printError("Invalid selection.");
             continue;
         }
 
         switch (choice) {
             case 1:
                 db.loadUsers();
-                cout << "Username: " << user.username << " | Name: " << user.full_name << "\n";
+                printSubHeader("PROFILE INFORMATION");
+                cout << Colors::SECONDARY << "Username: " << Colors::RESET << user.username << endl;
+                cout << Colors::SECONDARY << "Full Name: " << Colors::RESET << user.full_name << endl;
+                cout << Colors::SECONDARY << "Wallet ID: " << Colors::RESET << user.wallet_id << endl;
+                cout << endl;
+                cout << Colors::SECONDARY << "Press Enter to continue..." << Colors::RESET;
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                cin.get();
                 break;
             case 2:
                 changePassword(user);
@@ -550,12 +762,12 @@ void userMenu(User &user) {
                 break;
             case 7: {
                 db.loadUsers();
-                cout << "Pending User Update Requests:\n";
+                printSubHeader("PENDING UPDATE REQUESTS");
 
                 // Đọc và hiển thị danh sách yêu cầu
                 ifstream fin("admin_update_requests.db");
                 if (!fin) {
-                    cerr << "No pending update file found.\n";
+                    printWarning("No pending update requests found.");
                     break;
                 }
 
@@ -571,10 +783,10 @@ void userMenu(User &user) {
                     getline(ss, fullname);
 
                     if (username == user.username) {
-                        cout << "Username: " << username << "\n";
-                        cout << "New Fullname: " << fullname << "\n";
-                        cout << "OTP: " << otp << "\n";
-                        cout << "--------------------------\n";
+                        cout << Colors::BRIGHT_CYAN << "Username: " << Colors::RESET << username << endl;
+                        cout << Colors::BRIGHT_CYAN << "New Fullname: " << Colors::RESET << fullname << endl;
+                        cout << Colors::BRIGHT_CYAN << "OTP: " << Colors::BRIGHT_YELLOW << otp << Colors::RESET << endl;
+                        cout << Colors::YELLOW << "=================================================================" << Colors::RESET << endl;
                     }
 
                     availableOtps.push_back(otp);
@@ -583,11 +795,11 @@ void userMenu(User &user) {
                 fin.close();
 
                 if (availableOtps.empty()) {
-                    cout << "No pending requests found.\n";
+                    printWarning("No pending requests found.");
                     break;
                 }
 
-                cout << "Enter OTP to confirm user update: ";
+                cout << Colors::BRIGHT_CYAN << "Enter OTP to confirm user update: " << Colors::RESET;
                 string otp_input;
                 cin >> otp_input;
 
@@ -608,9 +820,9 @@ void userMenu(User &user) {
                         if (user_it != db.users.end()) {
                             user_it->second.full_name = fullname;
                             db.saveUsers();
-                            cout << "Updated successfully for user'" << username << "'.\n";
+                            printSuccess("Updated successfully for user '" + username + "'.");
                         } else {
-                            cout << "User not found in database.\n";
+                            printError("User not found in database.");
                         }
                         found = true;
                         // Không ghi lại dòng này nữa => tức là xoá khỏi file
@@ -626,15 +838,20 @@ void userMenu(User &user) {
                 rename("temp_admin_update_requests.db", "admin_update_requests.db");
 
                 if (!found) {
-                    cout << "Invalid or expired OTP.\n";
+                    printError("Invalid or expired OTP.");
                 }
 
+                cout << endl;
+                cout << Colors::BRIGHT_CYAN << "Press Enter to continue..." << Colors::RESET;
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                cin.get();
                 break;
             }
             case 8:
+                printSuccess("Logged out successfully!");
                 return;
             default:
-                cout << "Invalid selection.\n";
+                printError("Invalid selection.");
         }
     }
 }
@@ -642,44 +859,63 @@ void userMenu(User &user) {
 // Menu for admin users
 void adminMenu(User &user) {
     while (true) {
-        cout << "\nAdmin Menu (" << user.username << "):\n"
-             << "1. List Users\n"
-             << "2. Create User\n"
-             << "3. Modify User Info\n"
-             << "4. View Central Wallet\n"
-             << "5. Top-up User Wallet\n"
-             << "6. Approve Top-up\n"
-             << "7. Logout\n"
-             << "Choice: ";
+        clearScreen();
+        printHeader("ADMIN DASHBOARD - " + user.username);
+        cout << endl;
+        
+        cout << Colors::SECONDARY << "Welcome, " << Colors::SUCCESS << user.full_name << Colors::RESET << "!" << endl;
+        cout << endl;
+        
+        cout << Colors::PRIMARY << "+===============================================================+" << Colors::RESET << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::BOLD << Colors::HIGHLIGHT << "ADMIN MENU" << Colors::RESET << endl;
+        cout << Colors::PRIMARY << "+===============================================================+" << Colors::RESET << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::SECONDARY << "1." << Colors::RESET << " List All Users" << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::SECONDARY << "2." << Colors::RESET << " Create New User" << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::SECONDARY << "3." << Colors::RESET << " Modify User Information" << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::SECONDARY << "4." << Colors::RESET << " View Central Wallet Balance" << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::SECONDARY << "5." << Colors::RESET << " Top-up User Wallet" << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::SECONDARY << "6." << Colors::RESET << " Approve Top-up Requests" << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::ERROR << "7." << Colors::RESET << " Logout" << endl;
+        cout << Colors::PRIMARY << "+===============================================================+" << Colors::RESET << endl;
+        cout << endl;
+        
+        cout << Colors::SECONDARY << "Enter your choice: " << Colors::RESET;
         int choice;
         cin >> choice;
         if (cin.fail()) {
             cin.clear();
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cout << "Invalid selection.\n";
+            printError("Invalid selection.");
             continue;
         }
 
         switch (choice) {
             case 1:
+                printSubHeader("ALL USERS");
                 for (const auto &p : db.users) {
-                    cout << p.first << " (" << (p.second.is_admin ? "Admin" : "User") << ")\n";
+                    cout << Colors::SECONDARY << "Username: " << Colors::RESET << p.first;
+                    cout << " | " << Colors::WARNING << "Type: " << Colors::RESET << (p.second.is_admin ? "Admin" : "User");
+                    cout << " | " << Colors::SUCCESS << "Name: " << Colors::RESET << p.second.full_name << endl;
                 }
+                cout << endl;
+                cout << Colors::SECONDARY << "Press Enter to continue..." << Colors::RESET;
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                cin.get();
                 break;
             case 2:
                 registerUser(false);
                 break;
             case 3: {
-                cout << "Enter username to modify: ";
+                cout << Colors::BRIGHT_CYAN << "Enter username to modify: " << Colors::RESET;
                 string uname;
                 cin >> uname;
                 auto it = db.users.find(uname);
                 if (it == db.users.end()) {
-                    cout << "User not found.\n";
+                    printError("User not found.");
                     break;
                 }
 
-                cout << "Enter new fullname: ";
+                cout << Colors::BRIGHT_CYAN << "Enter new fullname: " << Colors::RESET;
                 string new_fullname;
                 cin.ignore();
                 getline(cin, new_fullname);
@@ -691,9 +927,9 @@ void adminMenu(User &user) {
                 ofstream req("admin_update_requests.db", ios::app);
                 if (req) {
                     req << pending.otp << "|" << pending.username << "|" << pending.fullname << "\n";
-                    cout << "OTP " << otp << " has been generated and sent to the user.\n";
+                    printSuccess("OTP " + otp + " has been generated and sent to the user.");
                 } else {
-                    cerr << "Failed to write pending update to file.\n";
+                    printError("Failed to write pending update to file.");
                 }
                 break;
             }
@@ -707,27 +943,40 @@ void adminMenu(User &user) {
                 adminApproveTopUps();
                 break;
             case 7:
+                printSuccess("Logged out successfully!");
                 return;
             default:
-                cout << "Invalid selection.\n";
+                printError("Invalid selection.");
         }
     }
 }
 
 int main() {
     while (true) {
-        cout << "\nMain Menu:\n"
-             << "1. Register User\n"
-             << "2. Register Admin\n"
-             << "3. Login\n"
-             << "4. Exit\n"
-             << "Choice: ";
+        clearScreen();
+        printHeader("WALLET POINTS SYSTEM");
+        cout << endl;
+        
+        cout << Colors::SECONDARY << "Welcome to the Wallet Points Management System!" << Colors::RESET << endl;
+        cout << endl;
+        
+        cout << Colors::PRIMARY << "+===============================================================+" << Colors::RESET << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::BOLD << Colors::HIGHLIGHT << "MAIN MENU" << Colors::RESET << endl;
+        cout << Colors::PRIMARY << "+===============================================================+" << Colors::RESET << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::SECONDARY << "1." << Colors::RESET << " Register New User" << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::SECONDARY << "2." << Colors::RESET << " Register New Admin" << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::SECONDARY << "3." << Colors::RESET << " Login to System" << endl;
+        cout << Colors::PRIMARY << "|" << Colors::RESET << " " << Colors::ERROR << "4." << Colors::RESET << " Exit System" << endl;
+        cout << Colors::PRIMARY << "+===============================================================+" << Colors::RESET << endl;
+        cout << endl;
+        
+        cout << Colors::SECONDARY << "Enter your choice: " << Colors::RESET;
         int choice;
         cin >> choice;
         if (cin.fail()) {
             cin.clear();
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cout << "Invalid selection.\n";
+            printError("Invalid selection.");
             continue;
         }
 
@@ -747,10 +996,12 @@ int main() {
                 break;
             }
             case 4:
+                printSuccess("Thank you for using Wallet Points System!");
                 return 0;
             default:
-                cout << "Invalid selection.\n";
+                printError("Invalid selection.");
         }
     }
     return 0;
 }
+
