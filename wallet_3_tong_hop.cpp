@@ -464,6 +464,7 @@ void topUpWallet(const User &user) {
     
     printSuccess("Top-up successful!");
     cout << Colors::BRIGHT_GREEN << "Remaining central balance: " << Colors::RESET << central.balance << " points" << endl;
+    db.saveWallets();
     
     cout << endl;
     cout << Colors::BRIGHT_CYAN << "Press Enter to continue..." << Colors::RESET;
